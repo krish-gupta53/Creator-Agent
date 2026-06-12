@@ -1,7 +1,7 @@
 import app from './index.js';
 import { requireSession, verifySameOrigin } from './auth.js';
 import { insertMessage } from './db.js';
-import { createSocialVideoAttachment, detectSocialVideoUrl, processSocialVideoUrlJob } from './social-video.js';
+import { createSocialVideoAttachment, detectSocialVideoUrl } from './social-video.js';
 import { json, readJson, safeError } from './utils.js';
 
 const UI_REPLACEMENTS = [
@@ -17,7 +17,7 @@ function enhanceUi(htmlText) {
   return UI_REPLACEMENTS.reduce((value, [search, replacement]) => value.replace(search, replacement), htmlText);
 }
 
-async function handleSocialVideoUrl(request, env, ctx, url) {
+async function handleSocialVideoUrl(request, env, url) {
   if (request.method !== 'POST') return null;
   const match = url.pathname.match(/^\/api\/conversations\/([^/]+)\/urls$/);
   if (!match) return null;
@@ -28,19 +28,26 @@ async function handleSocialVideoUrl(request, env, ctx, url) {
 
   await requireSession(request, env);
   verifySameOrigin(request);
+
   const conversationId = decodeURIComponent(match[1]);
   const message = await insertMessage(
     env,
     conversationId,
     'user',
     `Reference ${detected.provider} video: ${detected.canonical_url}`,
-    { source_url: detected.canonical_url, source_provider: detected.provider, source_type: 'social_video_url' }
+    {
+      source_url: detected.canonical_url,
+      source_provider: detected.provider,
+      source_type: 'social_video_url'
+    }
   );
+
   const attachment = await createSocialVideoAttachment(env, {
     conversationId,
     messageId: message.id,
     url: detected.canonical_url
   });
+
   if (env.SUPADATA_API_KEY) {
     await env.AGENT_QUEUE.send({
       type: 'process_social_video_url',
@@ -48,54 +55,51 @@ async function handleSocialVideoUrl(request, env, ctx, url) {
       conversation_id: conversationId
     });
   }
+
   return json({ ok: true, attachment }, 201);
 }
 
 async function handleFetch(request, env, ctx) {
-  const url = new URL(request.url);
-  const socialResponse = await handleSocialVideoUrl(request, env, ctx, url);
-  if (socialResponse) return socialResponse;
+  try {
+    const url = new URL(request.url);
+    const socialResponse = await handleSocialVideoUrl(request, env, url);
+    if (socialResponse) return socialResponse;
 
-  const response = await app.fetch(request, env, ctx);
-  if (request.method === 'GET' && url.pathname === '/api/health/integrations' && response.ok) {
-    const data = await response.json();
-    data.integrations = { ...(data.integrations || {}), supadata: Boolean(env.SUPADATA_API_KEY) };
-    return json(data, response.status);
-  }
+    const response = await app.fetch(request, env, ctx);
 
-  const contentType = response.headers.get('Content-Type') || '';
-  if (request.method !== 'GET' || !contentType.includes('text/html')) return response;
-  const headers = new Headers(response.headers);
-  headers.delete('Content-Length');
-  return new Response(enhanceUi(await response.text()), {
-    status: response.status,
-    statusText: response.statusText,
-    headers
-  });
-}
-
-async function handleQueue(batch, env) {
-  const remaining = [];
-  for (const message of batch.messages) {
-    const job = message.body || {};
-    if (job.type !== 'process_social_video_url') {
-      remaining.push(message);
-      continue;
+    if (request.method === 'GET' && url.pathname === '/api/health/integrations' && response.ok) {
+      const data = await response.json();
+      data.integrations = {
+        ...(data.integrations || {}),
+        supadata: Boolean(env.SUPADATA_API_KEY)
+      };
+      return json(data, response.status);
     }
-    try {
-      await processSocialVideoUrlJob(env, job);
-      message.ack();
-    } catch (error) {
-      console.error(JSON.stringify({
-        level: 'error',
-        event: 'social_video_job_failed',
-        attachment_id: job.attachment_id,
-        error: safeError(error)
-      }));
-      message.retry({ delaySeconds: 120 });
-    }
+
+    const contentType = response.headers.get('Content-Type') || '';
+    if (request.method !== 'GET' || !contentType.includes('text/html')) return response;
+
+    const headers = new Headers(response.headers);
+    headers.delete('Content-Length');
+    return new Response(enhanceUi(await response.text()), {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    });
+  } catch (error) {
+    const status = error?.status || 500;
+    console.error(JSON.stringify({
+      level: 'error',
+      event: 'social_video_route_failed',
+      path: new URL(request.url).pathname,
+      error: safeError(error)
+    }));
+    return json({
+      ok: false,
+      error: error?.message || 'Could not add this social-video source.',
+      code: error?.code || null
+    }, status);
   }
-  if (remaining.length) await app.queue({ ...batch, messages: remaining }, env);
 }
 
 export default {
@@ -103,5 +107,7 @@ export default {
   scheduled(event, env, ctx) {
     return app.scheduled(event, env, ctx);
   },
-  queue: handleQueue
+  queue(batch, env) {
+    return app.queue(batch, env);
+  }
 };
