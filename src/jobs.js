@@ -2,6 +2,7 @@ import { refreshConversationSummaryJob } from './conversations.js';
 import { getJob, setJob } from './db.js';
 import { generateContentPackageJob, regeneratePackageJob } from './packages.js';
 import { runInstagramInsightsJob } from './performance.js';
+import { processSocialVideoJob } from './social-video.js';
 import { analyzeVideoJob, indexAttachmentJob, ocrAttachmentJob } from './sources.js';
 import { nowIso, safeError } from './utils.js';
 
@@ -10,6 +11,7 @@ const HANDLERS = {
   index_attachment: indexAttachmentJob,
   analyze_video: analyzeVideoJob,
   ocr_attachment: ocrAttachmentJob,
+  process_social_video: processSocialVideoJob,
   generate_package: generateContentPackageJob,
   regenerate_package_section: regeneratePackageJob,
   instagram_insights: runInstagramInsightsJob,
