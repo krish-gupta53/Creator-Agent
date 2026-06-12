@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Personalized Content Package v4",
+  "type": "object",
+  "required": [
+    "package_title", "creative_rationale", "final_brief", "hook_options", "selected_hook",
+    "script", "visual_plan", "post_copy", "factual_cautions", "source_notes", "claim_ledger", "tts_requested"
+  ],
+  "properties": {
+    "package_title": { "type": "string" },
+    "creative_rationale": { "type": "string" },
+    "final_brief": { "type": "object" },
+    "hook_options": { "type": "array", "minItems": 3, "maxItems": 5, "items": { "type": "string" } },
+    "selected_hook": { "type": "string" },
+    "script": {
+      "type": "object",
+      "required": ["title", "estimated_duration_seconds", "spoken_script", "delivery_notes", "beat_sheet"]
+    },
+    "visual_plan": {
+      "type": "object",
+      "required": ["strategy", "requires_generated_images", "image_count", "aspect_ratio", "shots"]
+    },
+    "post_copy": {
+      "type": "object",
+      "required": ["caption", "hashtags", "cta", "thumbnail_text_options"]
+    },
+    "factual_cautions": { "type": "array", "items": { "type": "string" } },
+    "source_notes": { "type": "array", "items": { "type": "string" } },
+    "claim_ledger": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim", "status", "source_refs", "caveat"],
+        "properties": {
+          "claim": { "type": "string" },
+          "status": { "enum": ["supported", "opinion", "uncertain", "needs_verification"] },
+          "source_refs": { "type": "array", "items": { "type": "string" } },
+          "caveat": { "type": "string" }
+        }
+      }
+    },
+    "tts_requested": { "type": "boolean" }
+  }
+}

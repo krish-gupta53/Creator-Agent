@@ -1,0 +1,95 @@
+name                = "shortvideo-pipeline"
+main                = "src/index.js"
+compatibility_date  = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Smart Placement colocates the Worker with D1 and Vectorize — highest-impact
+# performance change for a write-heavy app with zero code changes required.
+[placement]
+mode = "smart"
+
+# Runs daily at 09:00 IST. INSIGHTS_EVERY_DAYS controls whether the job is due.
+[triggers]
+crons = ["30 3 * * *"]
+
+[ai]
+binding = "AI"
+
+[[r2_buckets]]
+binding     = "CONTENT_BUCKET"
+bucket_name = "shortvideo-content"
+
+# Existing KV remains for login throttling, migration markers, and lightweight cache.
+[[kv_namespaces]]
+binding = "APP_KV"
+id      = "d9081c5901254021a5cef8292efd2209"
+
+# Replace the zero UUID with the ID returned by:
+#   npx wrangler d1 create personalized-content-db
+[[d1_databases]]
+binding       = "DB"
+database_name = "personalized-content-db"
+database_id   = "6632e0ef-a079-45e3-a206-a0063c9a8d29"
+migrations_dir = "migrations"
+
+# Create once with:
+#   npx wrangler vectorize create creator-source-memory --dimensions=1024 --metric=cosine
+[[vectorize]]
+binding    = "SOURCE_VECTORS"
+index_name = "creator-source-memory"
+
+[[queues.producers]]
+binding = "AGENT_QUEUE"
+queue   = "pipeline-queue"
+
+[[queues.consumers]]
+queue             = "pipeline-queue"
+max_batch_size    = 1
+max_retries       = 3
+max_batch_timeout = 30
+max_concurrency   = 1
+retry_delay       = 120
+dead_letter_queue = "pipeline-dead-letter"
+
+[vars]
+TIME_ZONE                    = "Asia/Kolkata"
+SESSION_TTL_HOURS            = "168"
+MAX_UPLOAD_MB                = "20"
+MAX_ATTACHMENTS_PER_MESSAGE  = "6"
+MAX_VISION_MB                = "6"
+MAX_ASR_MB                   = "20"
+RECENT_CONTEXT_MESSAGES      = "12"
+SUMMARY_EVERY_MESSAGES       = "6"
+RETRIEVAL_TOP_K              = "7"
+INSIGHTS_EVERY_DAYS          = "1"
+INSTAGRAM_GRAPH_VERSION      = "v25.0"
+INSTAGRAM_GRAPH_BASE_URL     = "https://graph.instagram.com"
+
+CHAT_MODEL                   = "@cf/moonshotai/kimi-k2.6"
+FAST_MODEL                   = "@cf/zai-org/glm-4.7-flash"
+CRITIC_MODEL                 = "@cf/openai/gpt-oss-120b"
+IMAGE_MODEL                  = "@cf/leonardo/lucid-origin"
+EMBEDDING_MODEL              = "@cf/baai/bge-m3"
+RERANKER_MODEL               = "@cf/baai/bge-reranker-base"
+ASR_MODEL                    = "@cf/openai/whisper-large-v3-turbo"
+
+IMAGE_STEPS                  = "28"
+MAX_GENERATED_IMAGES         = "8"
+TTS_SPEAKER                  = "aditya"
+TTS_PACE                     = "1.0"
+TTS_TEMPERATURE              = "0.75"
+
+# Existing required secrets stay attached because the Worker name is unchanged:
+#   APP_PASSWORD, APP_SESSION_SECRET
+# Optional existing secrets:
+#   INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_USER_ID, SARVAM_API_KEY
+# New optional secrets/settings:
+#   TAVILY_API_KEY (live research)
+#   AI_GATEWAY_ID (AI Gateway analytics/policies; may also be a plain var)
+#   MEDIA_PROCESSOR_URL / MEDIA_PROCESSOR_TOKEN (external video frame/audio processor)
+#   OCR_PROCESSOR_URL / OCR_PROCESSOR_TOKEN (external scanned-document OCR)
+#   PACKAGE_WEBHOOK_URL (optional webhook fired after package completion)
+
+[observability]
+enabled = true
+head_sampling_rate = 1
