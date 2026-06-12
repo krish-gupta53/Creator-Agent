@@ -35,8 +35,11 @@ export async function processQueueBatch(batch, env) {
         try {
           await updateAttachment(env, job.attachment_id, {
             status: 'processing',
-            summary: `Social-video processing failed and will be retried: ${String(error.message || 'Unknown error').slice(0, 700)}`,
-            metadata: { processing_stage: 'retrying', last_error: String(error.message || 'Unknown error').slice(0, 1000) }
+            summary: 'The social-video source is temporarily delayed and will continue automatically.',
+            metadata: {
+              processing_stage: 'retrying',
+              last_error: String(error.message || 'Unknown error').slice(0, 1000),
+            },
           });
         } catch (writeError) {
           console.error('[social-video-status-write]', writeError.message);
