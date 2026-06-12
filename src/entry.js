@@ -38,6 +38,12 @@ const STAGED_SOURCE_UI = String.raw`
     }
   }
 
+  function clearStagedUrls() {
+    if (!stagedUrls.length) return;
+    stagedUrls.splice(0, stagedUrls.length);
+    renderStagedUrls();
+  }
+
   function renderStagedUrls() {
     document.querySelectorAll('.staged-source-list').forEach(node => node.remove());
     if (!stagedUrls.length) return;
@@ -70,6 +76,9 @@ const STAGED_SOURCE_UI = String.raw`
   }
 
   document.addEventListener('click', event => {
+    const conversation = event.target.closest('[data-chat]');
+    if (conversation && stagedUrls.length) clearStagedUrls();
+
     const button = event.target.closest('#addUrlBtn');
     if (!button) return;
     event.preventDefault();
@@ -100,10 +109,7 @@ const STAGED_SOURCE_UI = String.raw`
     }
 
     const response = await nativeFetch(input, init);
-    if (isMessageRequest && response.ok && stagedUrls.length) {
-      stagedUrls.splice(0, stagedUrls.length);
-      renderStagedUrls();
-    }
+    if (isMessageRequest && response.ok && stagedUrls.length) clearStagedUrls();
     return response;
   };
 
