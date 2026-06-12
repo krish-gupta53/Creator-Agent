@@ -34,7 +34,7 @@ export async function processQueueBatch(batch, env) {
       if (job.type === 'process_social_video_url' && job.attachment_id) {
         try {
           await updateAttachment(env, job.attachment_id, {
-            status: 'limited',
+            status: 'processing',
             summary: `Social-video processing failed and will be retried: ${String(error.message || 'Unknown error').slice(0, 700)}`,
             metadata: { processing_stage: 'retrying', last_error: String(error.message || 'Unknown error').slice(0, 1000) }
           });
