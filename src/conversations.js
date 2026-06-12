@@ -5,38 +5,105 @@ import {
   insertMessage, listMessages, listPerformanceLearnings, updateConversation, updatePin,
 } from './db.js';
 import { CONVERSATION_SUMMARY_SCHEMA, PLAN_SCHEMA } from './schemas.js';
-import { parseMessageRequest, processUploadedFile, retrieveRelevantSources } from './sources.js';
+import { createUrlAttachment, processUploadedFile, retrieveRelevantSources } from './sources.js';
+import { createSocialVideoAttachment, detectSocialVideoUrl } from './social-video.js';
 import { clampInt, cleanText, httpError, intEnv, normalizeStringArray, normalizeText } from './utils.js';
 
 export async function createConversation(env, title) {
   return createConversationRecord(env, title);
 }
 
+async function parseConversationMessageRequest(request) {
+  const contentType = request.headers.get('Content-Type') || '';
+  if (contentType.includes('multipart/form-data')) {
+    const form = await request.formData();
+    const text = String(form.get('message') || '');
+    const files = form.getAll('files').filter(value => typeof value === 'object' && typeof value.arrayBuffer === 'function' && value.size > 0);
+    const sourceUrls = form.getAll('source_urls').map(value => cleanText(value)).filter(Boolean);
+    return { text, files, sourceUrls };
+  }
+  const body = await request.json();
+  const rawUrls = Array.isArray(body.source_urls)
+    ? body.source_urls
+    : body.source_url
+      ? [body.source_url]
+      : [];
+  return {
+    text: String(body.message || ''),
+    files: [],
+    sourceUrls: rawUrls.map(value => cleanText(value)).filter(Boolean),
+  };
+}
+
+async function queueAttachmentWork(env, attachment, conversationId) {
+  if (attachment.metadata?.source_type === 'social_video_url') {
+    if (env.SUPADATA_API_KEY) {
+      await env.AGENT_QUEUE.send({ type: 'process_social_video_url', attachment_id: attachment.id, conversation_id: conversationId });
+    }
+    return;
+  }
+  if (attachment.metadata?.ocr_pending) {
+    await env.AGENT_QUEUE.send({ type: 'ocr_attachment', attachment_id: attachment.id, conversation_id: conversationId });
+    return;
+  }
+  if (attachment.metadata?.processor_pending) {
+    await env.AGENT_QUEUE.send({ type: 'analyze_video', attachment_id: attachment.id, conversation_id: conversationId });
+    return;
+  }
+  await env.AGENT_QUEUE.send({ type: 'index_attachment', job_id: `index-${attachment.id}`, attachment_id: attachment.id, conversation_id: conversationId });
+}
+
+function stableAttachmentSummary(item) {
+  const status = String(item?.status || '').toLowerCase();
+  const pending = ['queued', 'processing', 'extracting', 'indexing', 'uploaded'].includes(status);
+  return {
+    id: item.id,
+    name: item.name,
+    status: item.status,
+    source_type: item.metadata?.source_type || '',
+    processing_stage: item.metadata?.processing_stage || '',
+    summary: pending
+      ? 'This source is still processing. Treat it as pending, not failed. Do not infer a final API or rate-limit failure from temporary retry information.'
+      : item.summary,
+  };
+}
+
 export async function addConversationMessage(request, env, conversationId) {
   let conversation = await getConversation(env, conversationId);
   if (!conversation) throw httpError(404, 'Conversation not found.');
-  const { text, files } = await parseMessageRequest(request);
-  if (!cleanText(text) && !files.length) throw httpError(400, 'Write a message or attach a file.');
+  const { text, files, sourceUrls: rawSourceUrls } = await parseConversationMessageRequest(request);
+  const sourceUrls = [...new Set(rawSourceUrls.map(value => cleanText(value)).filter(Boolean))];
+  if (!cleanText(text) && !files.length && !sourceUrls.length) throw httpError(400, 'Write a message or attach a file or URL.');
   const maxAttachments = intEnv(env, 'MAX_ATTACHMENTS_PER_MESSAGE', 6);
-  if (files.length > maxAttachments) throw httpError(400, `Maximum ${maxAttachments} attachments per message.`);
+  if (files.length + sourceUrls.length > maxAttachments) throw httpError(400, `Maximum ${maxAttachments} attachments per message.`);
 
-  const userMessage = await insertMessage(env, conversationId, 'user', cleanText(text).slice(0, 20000), {});
+  const userMessage = await insertMessage(env, conversationId, 'user', cleanText(text).slice(0, 20000), {
+    source_urls: sourceUrls,
+  });
   const attachments = [];
+
   for (const file of files) {
     const attachment = await processUploadedFile(env, { conversationId, messageId: userMessage.id, file });
     attachments.push(attachment);
-    // Guard: only send index job when chunks exist and not yet vectorized.
     if (attachment.index_pending && !attachment.vector_id) {
       await env.AGENT_QUEUE.send({ type: 'index_attachment', attachment_id: attachment.id, conversation_id: conversationId });
     }
     if (attachment.media_processing_pending) await env.AGENT_QUEUE.send({ type: 'analyze_video', attachment_id: attachment.id, conversation_id: conversationId });
     if (attachment.ocr_processing_pending) await env.AGENT_QUEUE.send({ type: 'ocr_attachment', attachment_id: attachment.id, conversation_id: conversationId });
   }
+
+  for (const sourceUrl of sourceUrls) {
+    const social = detectSocialVideoUrl(sourceUrl);
+    const attachment = social
+      ? await createSocialVideoAttachment(env, { conversationId, messageId: userMessage.id, url: social.canonical_url })
+      : await createUrlAttachment(env, { conversationId, messageId: userMessage.id, url: sourceUrl });
+    attachments.push(attachment);
+    await queueAttachmentWork(env, attachment, conversationId);
+  }
+
   userMessage.attachments = attachments;
 
-  // Trigger an immediate summary when a rich attachment is added (summary length > 200)
-  // so the conversation summary captures source context without waiting 6 messages.
-  const hasRichAttachment = attachments.some(a => a.summary && a.summary.length > 200);
+  const hasRichAttachment = attachments.some(a => a.summary && a.summary.length > 200 && a.status === 'ready');
   if (hasRichAttachment) {
     await env.AGENT_QUEUE.send({ type: 'refresh_conversation_summary', conversation_id: conversationId });
   }
@@ -45,7 +112,8 @@ export async function addConversationMessage(request, env, conversationId) {
   const userMessages = conversation.messages.filter(item => item.role === 'user');
   if (userMessages.length === 1 && cleanText(text)) conversation.title = cleanText(text).slice(0, 82);
 
-  const context = await buildConversationContext(env, conversationId, cleanText(text) || attachments.map(item => item.summary).join('\n'));
+  const contextQuery = cleanText(text) || attachments.filter(item => item.status === 'ready').map(item => item.summary).join('\n');
+  const context = await buildConversationContext(env, conversationId, contextQuery);
   let plan;
   try { plan = await planConversation(env, conversation, userMessage, context); }
   catch (error) {
@@ -57,69 +125,84 @@ export async function addConversationMessage(request, env, conversationId) {
   userMessages.length >= 2 &&
   detectsApproval(userMessage.content);
 
-plan.decision_snapshot = normalizeDecisionSnapshot(
-  plan.decision_snapshot,
-  conversation.decision_snapshot,
-  context.creator_memory
-);
+  plan.decision_snapshot = normalizeDecisionSnapshot(
+    plan.decision_snapshot,
+    conversation.decision_snapshot,
+    context.creator_memory
+  );
 
-plan.missing_decisions = [
-  ...new Set([
-    ...normalizeStringArray(plan.missing_decisions, 8, 180),
-    ...computeEssentialMissingDecisions(plan.decision_snapshot),
-  ]),
-].slice(0, 8);
+  plan.missing_decisions = [
+    ...new Set([
+      ...normalizeStringArray(plan.missing_decisions, 8, 180),
+      ...computeEssentialMissingDecisions(plan.decision_snapshot),
+    ]),
+  ].slice(0, 8);
 
-plan.options = Array.isArray(plan.options)
-  ? plan.options.slice(0, 6)
-  : [];
+  plan.options = Array.isArray(plan.options)
+    ? plan.options.slice(0, 6)
+    : [];
 
-// The backend—not the LLM—owns the approval gate.
-const canGenerate =
-  explicitApproval &&
-  plan.missing_decisions.length === 0;
+  const hasPendingSocialSource = attachments.some(item =>
+    item.metadata?.source_type === 'social_video_url' &&
+    ['queued', 'processing', 'extracting', 'indexing', 'uploaded'].includes(String(item.status || '').toLowerCase())
+  );
 
-plan.ready_to_generate = canGenerate;
+  const canGenerate =
+    explicitApproval &&
+    plan.missing_decisions.length === 0 &&
+    !hasPendingSocialSource;
 
-if (canGenerate) {
-  plan.stage = 'approved';
-  plan.options = [];
-  plan.suggested_action = 'generate';
+  plan.ready_to_generate = canGenerate;
 
-  // Do not allow the planning model to write the final script here.
-  plan.assistant_message = [
-    'The production plan is approved and locked.',
-    '',
-    'Click "Generate package" to create the final script, visual plan, generated images, captions, review, and optional audio.',
-  ].join('\n');
-} else {
-  if (plan.stage === 'approved') {
-    plan.stage = 'awaiting_approval';
-  }
-
-  if (explicitApproval && plan.missing_decisions.length > 0) {
-    plan.stage = 'planning';
+  if (hasPendingSocialSource) {
+    plan.stage = conversation.stage === 'discovery' ? 'planning' : conversation.stage;
     plan.ready_to_generate = false;
-    plan.suggested_action = 'resolve_missing_decisions';
+    plan.options = [];
+    plan.suggested_action = 'wait_for_source';
+    plan.assistant_message = [
+      'I have attached your message and video source.',
+      '',
+      'The transcript and creator-focused analysis are still processing. This is a pending state, not a failed retrieval.',
+      '',
+      'Your instruction is saved. When the source shows Ready, send “continue” and I will use it in the planning conversation.',
+    ].join('\n');
+  } else if (canGenerate) {
+    plan.stage = 'approved';
+    plan.options = [];
+    plan.suggested_action = 'generate';
 
     plan.assistant_message = [
-      'I have recorded your approval, but the production plan is still missing:',
+      'The production plan is approved and locked.',
       '',
-      ...plan.missing_decisions.map(
-        item => `• ${item}`
-      ),
-      '',
-      'Let us settle these before generating the final package.',
+      'Click "Generate package" to create the final script, visual plan, generated images, captions, review, and optional audio.',
     ].join('\n');
+  } else {
+    if (plan.stage === 'approved') {
+      plan.stage = 'awaiting_approval';
+    }
+
+    if (explicitApproval && plan.missing_decisions.length > 0) {
+      plan.stage = 'planning';
+      plan.ready_to_generate = false;
+      plan.suggested_action = 'resolve_missing_decisions';
+
+      plan.assistant_message = [
+        'I have recorded your approval, but the production plan is still missing:',
+        '',
+        ...plan.missing_decisions.map(
+          item => `• ${item}`
+        ),
+        '',
+        'Let us settle these before generating the final package.',
+      ].join('\n');
+    }
   }
-}
 
   const updated = await updateConversation(env, conversationId, {
     title: conversation.title, stage: plan.stage, ready_to_generate: plan.ready_to_generate,
     decision_snapshot: plan.decision_snapshot, missing_decisions: plan.missing_decisions,
   });
 
-  // Embed missing_decisions in message metadata so the UI can render chips.
   await insertMessage(env, conversationId, 'assistant', cleanText(plan.assistant_message), {
     options: plan.options, suggested_action: plan.suggested_action, decision_snapshot: plan.decision_snapshot,
     missing_decisions: plan.missing_decisions,
@@ -134,8 +217,6 @@ if (canGenerate) {
 }
 
 export async function buildConversationContext(env, conversationId, currentQuery = '') {
-  // Fetch conversation meta, creator memory, performance learnings, recent messages,
-  // and relevant sources all in parallel to reduce round-trip latency.
   const [conversation, creatorMemory, performanceLearnings, recentMessages, relevantSources] = await Promise.all([
     getConversation(env, conversationId, { includeMessages: false }),
     getCreatorContext(env),
@@ -152,7 +233,7 @@ export async function buildConversationContext(env, conversationId, currentQuery
     recent_messages: recentMessages.map(message => ({
       id: message.id, sequence_number: message.sequence_number, role: message.role, content: message.content,
       options: message.metadata?.options || [],
-      attachment_summaries: (message.attachments || []).map(item => ({ id: item.id, name: item.name, status: item.status, summary: item.summary })),
+      attachment_summaries: (message.attachments || []).map(stableAttachmentSummary),
     })),
     relevant_sources: relevantSources,
     performance_learnings: performanceLearnings.map(item => ({ statement: item.statement, observation: item.observation, hypothesis: item.hypothesis, recommended_test: item.recommended_test, confidence: item.confidence, platform: item.platform, format: item.format })),
@@ -178,6 +259,9 @@ During conversation:
 - The creator normally speaks on camera. Recommend zero AI images when talking head, captions, B-roll, or uploaded material is enough.
 - This is a planning conversation only.
 - Never write the final script, complete narration, final caption, complete shot list, final image prompts, or production package in a planning response.
+- A source whose status is queued, processing, extracting, indexing, or uploaded is pending, not failed.
+- Never describe a temporary retry or rate-limit message as a final source failure.
+- If a required source is still processing, state only that it is pending and that the creator can continue after it becomes ready.
 - Even when the creator approves, do not generate the final content inside chat.
 - When the creator approves a complete plan, return only a short approval confirmation.
 - Set ready_to_generate to true when the latest user message explicitly approves and no meaningful decisions remain.
@@ -204,7 +288,7 @@ export async function refreshConversationSummaryJob(env, job) {
   const system = `Update the long-term memory for one creator conversation.
 Preserve accepted facts, important personal context, explicit constraints, rejected approaches, examples liked/disliked, open questions, source cautions, and the agreed creative direction.
 Never turn speculation into fact. Never infer a preference from one casual sentence. Remove open questions that are clearly resolved. Avoid copying small talk. Include the IDs of messages that support important memory. Return structured JSON only.`;
-  const summary = await runStructured(env, models.fast, system, JSON.stringify({ previous_summary: previous, current_decision_snapshot: conversation.decision_snapshot, pinned_notes: conversation.pins, new_messages: messages.map(item => ({ id: item.id, sequence: item.sequence_number, role: item.role, content: item.content, attachments: item.attachments.map(a => ({ name: a.name, summary: a.summary })) })) }), CONVERSATION_SUMMARY_SCHEMA, { max_tokens: 2600, temperature: 0.1 }, { task: 'conversation_summary', conversation_id: conversation.id });
+  const summary = await runStructured(env, models.fast, system, JSON.stringify({ previous_summary: previous, current_decision_snapshot: conversation.decision_snapshot, pinned_notes: conversation.pins, new_messages: messages.map(item => ({ id: item.id, sequence: item.sequence_number, role: item.role, content: item.content, attachments: item.attachments.map(stableAttachmentSummary) })) }), CONVERSATION_SUMMARY_SCHEMA, { max_tokens: 2600, temperature: 0.1 }, { task: 'conversation_summary', conversation_id: conversation.id });
   const latest = Math.max(...messages.map(item => Number(item.sequence_number || 0)));
   await updateConversation(env, conversation.id, { conversation_summary: normalizeConversationSummary(summary), last_summarized_sequence: latest });
 }
@@ -291,12 +375,10 @@ export async function duplicateConversation(env, conversationId) {
   const source = await getConversation(env, conversationId, { includeMessages: true, includeAttachments: false, includePackages: false });
   if (!source) throw httpError(404, 'Conversation not found.');
   const newConv = await createConversationRecord(env, `Copy of ${source.title}`.slice(0, 120));
-  // Copy non-greeting messages (skip the initial assistant greeting which createConversationRecord inserts).
   const messagesToCopy = (source.messages || []).filter(m => !(m.role === 'assistant' && m.sequence_number === 1));
   for (const m of messagesToCopy) {
     await insertMessage(env, newConv.id, m.role, m.content, { ...m.metadata, duplicated_from: m.id });
   }
-  // Copy decision snapshot and pins.
   await updateConversation(env, newConv.id, {
     title: newConv.title,
     stage: 'planning',
