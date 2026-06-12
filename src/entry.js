@@ -22,12 +22,12 @@ async function handleSocialVideoUrl(request, env, url) {
   const match = url.pathname.match(/^\/api\/conversations\/([^/]+)\/urls$/);
   if (!match) return null;
 
+  await requireSession(request, env);
+  verifySameOrigin(request);
+
   const body = await readJson(request.clone());
   const detected = detectSocialVideoUrl(body.url);
   if (!detected) return null;
-
-  await requireSession(request, env);
-  verifySameOrigin(request);
 
   const conversationId = decodeURIComponent(match[1]);
   const message = await insertMessage(
@@ -56,7 +56,11 @@ async function handleSocialVideoUrl(request, env, url) {
     });
   }
 
-  return json({ ok: true, attachment }, 201);
+  return json(
+    { ok: true, attachment },
+    201,
+    { 'X-Content-Type-Options': 'nosniff' }
+  );
 }
 
 async function handleFetch(request, env, ctx) {
@@ -73,7 +77,7 @@ async function handleFetch(request, env, ctx) {
         ...(data.integrations || {}),
         supadata: Boolean(env.SUPADATA_API_KEY)
       };
-      return json(data, response.status);
+      return json(data, response.status, { 'X-Content-Type-Options': 'nosniff' });
     }
 
     const contentType = response.headers.get('Content-Type') || '';
@@ -98,7 +102,7 @@ async function handleFetch(request, env, ctx) {
       ok: false,
       error: error?.message || 'Could not add this social-video source.',
       code: error?.code || null
-    }, status);
+    }, status, { 'X-Content-Type-Options': 'nosniff' });
   }
 }
 
