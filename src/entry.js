@@ -4,17 +4,125 @@ import { insertMessage } from './db.js';
 import { createSocialVideoAttachment, detectSocialVideoUrl } from './social-video.js';
 import { json, readJson, safeError } from './utils.js';
 
+const STAGED_SOURCE_UI = String.raw`
+<style>
+  .staged-source-list{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px;width:100%}
+  .staged-source-chip{display:inline-flex;align-items:center;gap:7px;max-width:100%;padding:6px 9px;border:1px solid rgba(200,241,53,.24);border-radius:999px;background:rgba(200,241,53,.08);color:var(--accent);font-size:11px;line-height:1.3}
+  .staged-source-chip span{max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .staged-source-remove{border:0;background:transparent;color:inherit;padding:0 2px;font-size:15px;line-height:1;box-shadow:none}
+</style>
+<script>
+(() => {
+  const stagedUrls = [];
+  const nativeFetch = window.fetch.bind(window);
+
+  function normalizeUrl(value) {
+    try {
+      const url = new URL(String(value || '').trim());
+      if (url.protocol !== 'https:') return null;
+      return url.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  function sourceLabel(value) {
+    try {
+      const url = new URL(value);
+      const host = url.hostname.replace(/^www\./, '');
+      if (host === 'youtu.be' || host.endsWith('youtube.com')) return 'YouTube video';
+      if (host.endsWith('instagram.com')) return 'Instagram video';
+      return host;
+    } catch {
+      return 'URL source';
+    }
+  }
+
+  function renderStagedUrls() {
+    document.querySelectorAll('.staged-source-list').forEach(node => node.remove());
+    if (!stagedUrls.length) return;
+    const button = document.getElementById('addUrlBtn');
+    if (!button) return;
+    const list = document.createElement('div');
+    list.className = 'staged-source-list';
+    stagedUrls.forEach((url, index) => {
+      const chip = document.createElement('div');
+      chip.className = 'staged-source-chip';
+      chip.title = url;
+      const label = document.createElement('span');
+      label.textContent = sourceLabel(url) + ': ' + url;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'staged-source-remove';
+      remove.setAttribute('aria-label', 'Remove URL source');
+      remove.textContent = '×';
+      remove.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        stagedUrls.splice(index, 1);
+        renderStagedUrls();
+      });
+      chip.append(label, remove);
+      list.appendChild(chip);
+    });
+    const host = button.parentElement || button;
+    host.appendChild(list);
+  }
+
+  document.addEventListener('click', event => {
+    const button = event.target.closest('#addUrlBtn');
+    if (!button) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    const value = window.prompt('Paste an article, YouTube video, or Instagram Reel URL');
+    if (!value) return;
+    const normalized = normalizeUrl(value);
+    if (!normalized) {
+      window.alert('Enter a valid public HTTPS URL.');
+      return;
+    }
+    if (!stagedUrls.includes(normalized)) stagedUrls.push(normalized);
+    renderStagedUrls();
+
+    const textareas = [...document.querySelectorAll('textarea')].filter(node => node.offsetParent !== null && !node.disabled);
+    textareas.at(-1)?.focus();
+  }, true);
+
+  window.fetch = async function stagedSourceFetch(input, init = {}) {
+    const requestUrl = typeof input === 'string' ? input : input?.url || '';
+    const method = String(init.method || (typeof input !== 'string' && input?.method) || 'GET').toUpperCase();
+    const isMessageRequest = method === 'POST' && /\/api\/conversations\/[^/]+\/messages(?:\?|$)/.test(requestUrl);
+    const body = init.body;
+
+    if (isMessageRequest && body instanceof FormData && stagedUrls.length) {
+      stagedUrls.forEach(url => body.append('source_urls', url));
+    }
+
+    const response = await nativeFetch(input, init);
+    if (isMessageRequest && response.ok && stagedUrls.length) {
+      stagedUrls.splice(0, stagedUrls.length);
+      renderStagedUrls();
+    }
+    return response;
+  };
+
+  new MutationObserver(() => {
+    if (stagedUrls.length && !document.querySelector('.staged-source-list')) renderStagedUrls();
+  }).observe(document.documentElement, { childList: true, subtree: true });
+})();
+</script>`;
+
 const UI_REPLACEMENTS = [
   ['id="addUrlBtn">Add URL</button>', 'id="addUrlBtn">Add URL / Video</button>'],
-  ["prompt('Paste a public HTTPS URL')", "prompt('Paste an article, YouTube video, or Instagram Reel URL')"],
-  ["toast('URL added and queued for indexing')", "toast('Source added and queued for processing')"],
   ['Files and URLs are chunked, embedded, and retrieved only inside this chat.', 'Files, articles, YouTube videos, and Instagram Reels are processed, indexed, and retrieved only inside this chat.'],
   ['PDF pages, documents, images, and audio become text or descriptions.', 'PDFs, documents, images, audio, and supported social-video links become searchable source text and analysis.'],
   ["['media_processor','Video processor','Uploaded video analysis']", "['media_processor','Video processor','Uploaded video analysis'],['supadata','Supadata','YouTube and Instagram transcript sources']"]
 ];
 
 function enhanceUi(htmlText) {
-  return UI_REPLACEMENTS.reduce((value, [search, replacement]) => value.replace(search, replacement), htmlText);
+  const enhanced = UI_REPLACEMENTS.reduce((value, [search, replacement]) => value.replace(search, replacement), htmlText);
+  return enhanced.replace('</body>', `${STAGED_SOURCE_UI}\n</body>`);
 }
 
 async function handleSocialVideoUrl(request, env, url) {
