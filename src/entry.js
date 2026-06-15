@@ -2,6 +2,7 @@ import app from './index.js';
 import { requireSession, verifySameOrigin } from './auth.js';
 import { getConversation, insertMessage, updateConversation } from './db.js';
 import { createSocialVideoAttachment, detectSocialVideoUrl } from './social-video.js';
+import { MODERN_UI } from './ui-modern.js';
 import { json, readJson, safeError } from './utils.js';
 
 const ENHANCED_CREATOR_UI = String.raw`
@@ -257,7 +258,7 @@ const UI_REPLACEMENTS = [
 
 function enhanceUi(htmlText) {
   const enhanced = UI_REPLACEMENTS.reduce((value, [search, replacement]) => value.replace(search, replacement), htmlText);
-  return enhanced.replace('</body>', `${ENHANCED_CREATOR_UI}\n</body>`);
+  return enhanced.replace('</body>', `${ENHANCED_CREATOR_UI}\n${MODERN_UI}\n</body>`);
 }
 
 function parseBoolean(value, fallback) {
