@@ -65,6 +65,7 @@ INSIGHTS_EVERY_DAYS          = "1"
 INSTAGRAM_GRAPH_VERSION      = "v25.0"
 INSTAGRAM_GRAPH_BASE_URL     = "https://graph.instagram.com"
 SUPADATA_TRANSCRIPT_MODE     = "auto"
+OPENAI_MODEL                 = "gpt-5.5"
 
 CHAT_MODEL                   = "@cf/moonshotai/kimi-k2.6"
 FAST_MODEL                   = "@cf/zai-org/glm-4.7-flash"
@@ -85,8 +86,9 @@ TTS_TEMPERATURE              = "0.75"
 # Optional existing secrets:
 #   INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_USER_ID, SARVAM_API_KEY
 # New optional secrets/settings:
+#   OPENAI_API_KEY (enables direct GPT-5.5 generation, web search, and image generation)
 #   SUPADATA_API_KEY (YouTube and Instagram transcript sources)
-#   TAVILY_API_KEY (live research)
+#   TAVILY_API_KEY (live research fallback)
 #   AI_GATEWAY_ID (AI Gateway analytics/policies; may also be a plain var)
 #   MEDIA_PROCESSOR_URL / MEDIA_PROCESSOR_TOKEN (external uploaded-video frame/audio processor)
 #   OCR_PROCESSOR_URL / OCR_PROCESSOR_TOKEN (external scanned-document OCR)
