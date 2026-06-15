@@ -163,12 +163,12 @@ const ENHANCED_CREATOR_UI = String.raw`
     const controls = getControls(id);
     const panel = document.createElement('div');
     panel.className = 'generation-controls';
-    panel.innerHTML = `
-      <label class="generation-control"><strong>Model</strong><select data-generation-control="model_mode"><option value="existing">Existing pipeline</option><option value="gpt-5.5">GPT-5.5 Thinking</option></select></label>
-      <label class="generation-control"><strong>Deep research</strong><input type="checkbox" data-generation-control="deep_research_enabled"></label>
-      <label class="generation-control"><strong>AI images</strong><input type="checkbox" data-generation-control="image_generation_enabled"></label>
-      <label class="generation-control"><strong>On-screen captions</strong><input type="checkbox" data-generation-control="captions_enabled"></label>
-      <div class="control-help">These settings are authoritative. The agent will not ask you to choose research, images, or captions in chat. GPT-5.5 automatically falls back to the existing pipeline when a capability or API call is unavailable.</div>`;
+    panel.innerHTML =
+      '<label class="generation-control"><strong>Model</strong><select data-generation-control="model_mode"><option value="existing">Existing pipeline</option><option value="gpt-5.5">GPT-5.5 Thinking</option></select></label>' +
+      '<label class="generation-control"><strong>Deep research</strong><input type="checkbox" data-generation-control="deep_research_enabled"></label>' +
+      '<label class="generation-control"><strong>AI images</strong><input type="checkbox" data-generation-control="image_generation_enabled"></label>' +
+      '<label class="generation-control"><strong>On-screen captions</strong><input type="checkbox" data-generation-control="captions_enabled"></label>' +
+      '<div class="control-help">These settings are authoritative. The agent will not ask you to choose research, images, or captions in chat. GPT-5.5 automatically falls back to the existing pipeline when a capability or API call is unavailable.</div>';
     const textarea = composer.querySelector('textarea');
     composer.insertBefore(panel, textarea);
     const model = panel.querySelector('[data-generation-control="model_mode"]');
