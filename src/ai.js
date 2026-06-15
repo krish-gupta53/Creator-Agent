@@ -79,6 +79,10 @@ function applyLockedControls(result, controls) {
   return result;
 }
 
+function finalizeStructuredResult(result, controls, task) {
+  return task.startsWith('conversation_planning') ? applyLockedControls(result, controls) : result;
+}
+
 async function invoke(env, model, input, context = {}) {
   const started = Date.now();
   let retryCount = 0;
@@ -168,20 +172,35 @@ export async function runStructured(env, model, system, user, schema, options = 
   const task = context.task || 'structured';
   const effectiveSystem = `${system}${controlsInstruction(selection.controls, task)}`;
   if (selection.enabled) {
+    const common = {
+      input: [
+        { role: 'system', content: [{ type: 'input_text', text: effectiveSystem }] },
+        { role: 'user', content: [{ type: 'input_text', text: user }] },
+      ],
+      reasoning: { effort: options.reasoning_effort || (options.thinking ? 'high' : 'medium') },
+      max_output_tokens: options.max_tokens || 4000,
+      parallel_tool_calls: false,
+    };
     try {
       const response = await invokeOpenAI(env, {
-        input: [
-          { role: 'system', content: [{ type: 'input_text', text: effectiveSystem }] },
-          { role: 'user', content: [{ type: 'input_text', text: user }] },
-        ],
-        reasoning: { effort: options.reasoning_effort || (options.thinking ? 'high' : 'medium') },
-        max_output_tokens: options.max_tokens || 4000,
+        ...common,
         text: { format: { type: 'json_schema', name: 'structured_result', strict: true, schema } },
-        parallel_tool_calls: false,
       }, { ...context, task: `${task}:openai` });
-      return applyLockedControls(extractStructuredPayload(response, schema), selection.controls);
+      return finalizeStructuredResult(extractStructuredPayload(response, schema), selection.controls, task);
     } catch (error) {
-      console.warn('[openai-structured-fallback]', task, error.message);
+      console.warn('[openai-structured-schema-retry]', task, error.message);
+      try {
+        const response = await invokeOpenAI(env, {
+          ...common,
+          input: [
+            { role: 'system', content: [{ type: 'input_text', text: `${effectiveSystem}\n\nReturn only JSON matching this schema. Do not use markdown fences.\n${JSON.stringify(schema)}` }] },
+            { role: 'user', content: [{ type: 'input_text', text: user }] },
+          ],
+        }, { ...context, task: `${task}:openai_json_retry` });
+        return finalizeStructuredResult(extractStructuredPayload(response, schema), selection.controls, task);
+      } catch (retryError) {
+        console.warn('[openai-structured-fallback]', task, retryError.message);
+      }
     }
   }
 
@@ -201,7 +220,7 @@ export async function runStructured(env, model, system, user, schema, options = 
   for (let index = 0; index < attempts.length; index += 1) {
     try {
       const response = await invoke(env, model, attempts[index], { ...context, task: `${task}:${index + 1}` });
-      return applyLockedControls(extractStructuredPayload(response, schema), selection.controls);
+      return finalizeStructuredResult(extractStructuredPayload(response, schema), selection.controls, task);
     } catch (error) { failures.push(error.message); }
   }
   throw new Error(`Structured generation failed: ${failures.join(' | ')}`);
