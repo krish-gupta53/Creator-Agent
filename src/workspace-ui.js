@@ -1,5 +1,13 @@
 import { WORKSPACE_STYLE } from './workspace-ui-style.js';
 import { WORKSPACE_MARKUP } from './workspace-ui-markup.js';
-import { WORKSPACE_SCRIPT_A, WORKSPACE_SCRIPT_B } from './workspace-ui-script.js';
-
-export const WORKSPACE_UI = `${WORKSPACE_STYLE}${WORKSPACE_MARKUP}<script>${WORKSPACE_SCRIPT_A}${WORKSPACE_SCRIPT_B}</script>`;
+import { WORKSPACE_SCRIPT_A } from './workspace-ui-script-a.js';
+import { WORKSPACE_SCRIPT_C } from './workspace-ui-script-c.js';
+import { WORKSPACE_SCRIPT_D } from './workspace-ui-script-d.js';
+import { WORKSPACE_SCRIPT_E } from './workspace-ui-script-e.js';
+import { WORKSPACE_SCRIPT_F } from './workspace-ui-script-f.js';
+import { WORKSPACE_SCRIPT_G } from './workspace-ui-script-g.js';
+import { WORKSPACE_SCRIPT_H } from './workspace-ui-script-h.js';
+import { WORKSPACE_SCRIPT_I } from './workspace-ui-script-i.js';
+import { WORKSPACE_SCRIPT_J } from './workspace-ui-script-j.js';
+const scripts=[WORKSPACE_SCRIPT_A,WORKSPACE_SCRIPT_C,WORKSPACE_SCRIPT_D,WORKSPACE_SCRIPT_E,WORKSPACE_SCRIPT_F,WORKSPACE_SCRIPT_G,WORKSPACE_SCRIPT_H,WORKSPACE_SCRIPT_I,WORKSPACE_SCRIPT_J].join('');
+export const WORKSPACE_UI=WORKSPACE_STYLE+WORKSPACE_MARKUP+'<script>'+scripts+'</script>';
