@@ -1,6 +1,6 @@
 import app from './index.js';
 import { processQueueBatch } from './jobs.js';
-import { WORKSPACE_UI } from './workspace-ui.js';
+import { WORKSPACE_UI } from './workspace-ui-v2.js';
 import { handleWorkspaceRequest, markWorkspaceRunFailed, runWorkspaceJob } from './workspace.js';
 import { json, safeError } from './utils.js';
 
