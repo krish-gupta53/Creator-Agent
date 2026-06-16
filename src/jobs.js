@@ -26,26 +26,38 @@ export async function processQueueBatch(batch, env) {
       await handler(env, job);
       message.ack();
     } catch (error) {
-      console.error(JSON.stringify({ level: 'error', event: 'queue_job_failed', job_type: job.type, job_id: job.job_id, error: safeError(error) }));
+      const failure = String(error?.message || 'Unknown operation failure').slice(0, 1200);
+      console.error(JSON.stringify({ level: 'error', event: 'queue_job_failed_terminally', job_type: job.type, job_id: job.job_id, error: safeError(error) }));
       if (job.job_id) {
-        try { await setJob(env, job.job_id, { ...(await getJob(env, job.job_id)), state: 'failed', error: error.message, completed_at: nowIso(), progress: 'Failed' }); }
-        catch (writeError) { console.error('[job-status-write]', writeError.message); }
+        try {
+          await setJob(env, job.job_id, {
+            ...(await getJob(env, job.job_id)),
+            state: 'failed',
+            error: failure,
+            completed_at: nowIso(),
+            progress: 'Failed',
+          });
+        } catch (writeError) {
+          console.error('[job-status-write]', writeError.message);
+        }
       }
-      if (job.type === 'process_social_video_url' && job.attachment_id) {
+      if (job.attachment_id) {
         try {
           await updateAttachment(env, job.attachment_id, {
-            status: 'processing',
-            summary: 'The social-video source is temporarily delayed and will continue automatically.',
+            status: 'limited',
+            summary: `Automatic processing failed: ${failure}`,
             metadata: {
-              processing_stage: 'retrying',
-              last_error: String(error.message || 'Unknown error').slice(0, 1000),
+              processing_stage: 'failed',
+              processing_terminal: true,
+              last_error: failure,
+              failed_at: nowIso(),
             },
           });
         } catch (writeError) {
-          console.error('[social-video-status-write]', writeError.message);
+          console.error('[attachment-status-write]', writeError.message);
         }
       }
-      message.retry({ delaySeconds: 120 });
+      message.ack();
     }
   }
 }
