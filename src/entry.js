@@ -14,6 +14,14 @@ async function routeWorkspace(request, env, ctx) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/api/workspace/')) return null;
 
+  const deleteProject = request.method === 'DELETE' && url.pathname.match(/^\/api\/workspace\/projects\/([^/]+)$/);
+  if (deleteProject) {
+    const projectId = decodeURIComponent(deleteProject[1]);
+    const target = new URL(request.url);
+    target.pathname = `/api/conversations/${encodeURIComponent(projectId)}`;
+    return app.fetch(new Request(target.toString(), request), env, ctx);
+  }
+
   let requestedModel = '';
   const isRunCreate = request.method === 'POST' && /^\/api\/workspace\/projects\/[^/]+\/runs$/.test(url.pathname);
   if (isRunCreate) {
@@ -80,7 +88,7 @@ async function handleQueue(batch, env) {
     } catch (error) {
       console.error(JSON.stringify({ level: 'error', event: 'workspace_run_failed', job_id: job.job_id || null, run_id: job.run_id || null, error: safeError(error) }));
       await markWorkspaceRunFailed(env, job, error);
-      message.retry({ delaySeconds: 120 });
+      message.ack();
     }
   }
   if (legacyMessages.length) await processQueueBatch({ ...batch, messages: legacyMessages }, env);
