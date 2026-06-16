@@ -9,6 +9,7 @@ import { WORKSPACE_SCRIPT_G } from './workspace-ui-script-g.js';
 import { WORKSPACE_SCRIPT_H } from './workspace-ui-script-h.js';
 import { WORKSPACE_SCRIPT_I } from './workspace-ui-script-i.js';
 import { WORKSPACE_SCRIPT_K } from './workspace-ui-script-k.js';
+import { WORKSPACE_SCRIPT_L } from './workspace-ui-script-l.js';
 import { WORKSPACE_SCRIPT_J } from './workspace-ui-script-j.js';
-const scripts=[WORKSPACE_SCRIPT_A,WORKSPACE_SCRIPT_C,WORKSPACE_SCRIPT_D,WORKSPACE_SCRIPT_E,WORKSPACE_SCRIPT_F,WORKSPACE_SCRIPT_G,WORKSPACE_SCRIPT_H,WORKSPACE_SCRIPT_I,WORKSPACE_SCRIPT_K,WORKSPACE_SCRIPT_J].join('');
+const scripts=[WORKSPACE_SCRIPT_A,WORKSPACE_SCRIPT_C,WORKSPACE_SCRIPT_D,WORKSPACE_SCRIPT_E,WORKSPACE_SCRIPT_F,WORKSPACE_SCRIPT_G,WORKSPACE_SCRIPT_H,WORKSPACE_SCRIPT_I,WORKSPACE_SCRIPT_K,WORKSPACE_SCRIPT_L,WORKSPACE_SCRIPT_J].join('');
 export const WORKSPACE_UI=WORKSPACE_STYLE+WORKSPACE_MARKUP+'<script>'+scripts+'</script>';
