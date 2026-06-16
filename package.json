@@ -1,6 +1,6 @@
 {
-  "name": "personalized-content-agent",
-  "version": "4.0.0",
+  "name": "research-insights-workspace",
+  "version": "5.0.0",
   "private": true,
   "type": "module",
   "scripts": {
