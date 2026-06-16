@@ -36,7 +36,11 @@ async function routeWorkspace(request, env, ctx) {
     const models = workspaceModelOptions(env);
     data.models = models;
     data.default_model = models[0]?.id || '';
-    data.integrations = { ...(data.integrations || {}), workers_ai: Boolean(env.AI), selected_model_provider: 'cloudflare_workers_ai' };
+    data.integrations = {
+      ...(data.integrations || {}),
+      workers_ai: Boolean(env.AI),
+      openai_thinking: Boolean(env.OPENAI_API_KEY),
+    };
     return json(data, response.status, { 'X-Content-Type-Options': 'nosniff' });
   }
 
@@ -44,7 +48,13 @@ async function routeWorkspace(request, env, ctx) {
     const data = await response.json();
     if (data.run?.id) {
       const selected = await saveRunModel(env, data.run.id, requestedModel);
-      data.run.options = { ...(data.run.options || {}), model: selected.id, model_label: selected.label, model_provider: 'cloudflare_workers_ai' };
+      data.run.options = {
+        ...(data.run.options || {}),
+        model: selected.id,
+        runtime_model: selected.model,
+        model_label: selected.label,
+        model_provider: selected.provider,
+      };
     }
     return json(data, response.status, { 'X-Content-Type-Options': 'nosniff' });
   }
