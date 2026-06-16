@@ -2,6 +2,7 @@ import app from './index.js';
 import { processQueueBatch } from './jobs.js';
 import { WORKSPACE_UI } from './workspace-ui-v2.js';
 import { handleWorkspaceRequest, markWorkspaceRunFailed, runWorkspaceJob } from './workspace.js';
+import { modelEnvironmentForRun, saveRunModel, workspaceModelOptions } from './workspace-models.js';
 import { json, safeError } from './utils.js';
 
 function injectWorkspace(htmlText) {
@@ -9,9 +10,43 @@ function injectWorkspace(htmlText) {
   return htmlText.replace('</body>', `${WORKSPACE_UI}\n</body>`);
 }
 
+async function routeWorkspace(request, env, ctx) {
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith('/api/workspace/')) return null;
+
+  let requestedModel = '';
+  const isRunCreate = request.method === 'POST' && /^\/api\/workspace\/projects\/[^/]+\/runs$/.test(url.pathname);
+  if (isRunCreate) {
+    try { requestedModel = String((await request.clone().json()).model || ''); } catch { requestedModel = ''; }
+  }
+
+  const response = await handleWorkspaceRequest(request, env, ctx);
+  if (!response?.ok) return response;
+
+  if (request.method === 'GET' && url.pathname === '/api/workspace/bootstrap') {
+    const data = await response.json();
+    const models = workspaceModelOptions(env);
+    data.models = models;
+    data.default_model = models[0]?.id || '';
+    data.integrations = { ...(data.integrations || {}), workers_ai: Boolean(env.AI), selected_model_provider: 'cloudflare_workers_ai' };
+    return json(data, response.status, { 'X-Content-Type-Options': 'nosniff' });
+  }
+
+  if (isRunCreate) {
+    const data = await response.json();
+    if (data.run?.id) {
+      const selected = await saveRunModel(env, data.run.id, requestedModel);
+      data.run.options = { ...(data.run.options || {}), model: selected.id, model_label: selected.label, model_provider: 'cloudflare_workers_ai' };
+    }
+    return json(data, response.status, { 'X-Content-Type-Options': 'nosniff' });
+  }
+
+  return response;
+}
+
 async function handleFetch(request, env, ctx) {
   try {
-    const workspaceResponse = await handleWorkspaceRequest(request, env, ctx);
+    const workspaceResponse = await routeWorkspace(request, env, ctx);
     if (workspaceResponse) return workspaceResponse;
     const response = await app.fetch(request, env, ctx);
     const contentType = response.headers.get('Content-Type') || '';
@@ -39,7 +74,8 @@ async function handleQueue(batch, env) {
       continue;
     }
     try {
-      await runWorkspaceJob(env, job);
+      const routed = await modelEnvironmentForRun(env, job.run_id);
+      await runWorkspaceJob(routed.env, job);
       message.ack();
     } catch (error) {
       console.error(JSON.stringify({ level: 'error', event: 'workspace_run_failed', job_id: job.job_id || null, run_id: job.run_id || null, error: safeError(error) }));
