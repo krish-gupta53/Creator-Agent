@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0A0A0F">
+  <meta name="description" content="CreatorIQ — personal research and Instagram intelligence for content creators.">
+  <title>CreatorIQ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<section id="loginView" class="login" hidden><div class="aurora"></div><form id="loginForm" class="login-card"><div class="brand"><span>CI</span>CreatorIQ</div><p class="eyebrow">Private creator intelligence</p><h1>Enter your workspace</h1><p class="muted">Use the same workspace password you already use.</p><label for="password">Workspace password</label><input id="password" type="password" autocomplete="current-password" required autofocus><button class="button primary" type="submit">Continue</button><p id="loginError" class="error" role="alert"></p></form></section>
+<div id="app" class="shell" hidden>
+  <aside class="sidebar"><div class="aurora"></div><a class="brand" href="#/dashboard"><span>CI</span><b>CreatorIQ</b></a><nav><a data-route="dashboard" href="#/dashboard">⌂ <b>Dashboard</b></a><a data-route="research" href="#/research">⌕ <b>Research</b></a><a data-route="instagram" href="#/instagram">◎ <b>Instagram</b></a><a data-route="saved" href="#/saved">◇ <b>Saved</b></a><a data-route="settings" href="#/settings">⚙ <b>Settings</b></a></nav><section class="recent"><small>Recent</small><div id="recent"></div></section><button id="modelToggle" class="model-toggle"><i></i><span><strong id="modelTitle">Cloudflare AI</strong><small id="modelSubtitle">Llama 4 Scout</small></span><em></em></button></aside>
+  <div class="workspace"><header><div>CreatorIQ <span>/</span> <strong id="pageTitle">Dashboard</strong></div><div class="header-actions"><button id="searchButton" class="ghost">⌘ K Search</button><span id="modelPill" class="pill">Cloudflare AI</span><button id="logout" class="icon" title="Log out">↗</button></div></header><main id="main" tabindex="-1"></main></div>
+</div>
+<dialog id="searchDialog"><form method="dialog" class="dialog-head"><strong>Search CreatorIQ</strong><button value="cancel" class="icon">×</button></form><input id="searchInput" type="search" placeholder="Search saved intelligence…"><div id="searchResults"></div></dialog>
+<script type="module" src="/app.js"></script>
+</body></html>
