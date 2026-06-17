@@ -26,4 +26,20 @@ export default {
       return securityHeaders(json({ ok: false, error: status >= 500 ? 'CreatorIQ could not complete this request.' : error.message, code: error?.code || null, request_id: requestId }, status), requestId);
     }
   },
+
+  // Compatibility handler for the existing Cloudflare Queue consumer attached to
+  // the retained shortvideo-pipeline Worker service. CreatorIQ no longer creates
+  // background pipeline jobs, so legacy queued messages are acknowledged safely.
+  async queue(batch) {
+    for (const message of batch.messages || []) {
+      console.warn(JSON.stringify({ level: 'warn', event: 'legacy_queue_message_discarded', message_id: message.id || null }));
+      message.ack();
+    }
+  },
+
+  // Keeps deployment compatible if the previous Worker cron trigger has not yet
+  // been removed from the Cloudflare service configuration.
+  async scheduled(controller) {
+    console.log(JSON.stringify({ level: 'info', event: 'legacy_scheduled_trigger_ignored', scheduled_time: controller.scheduledTime || null }));
+  },
 };
