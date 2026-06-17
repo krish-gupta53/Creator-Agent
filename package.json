@@ -1,18 +1,13 @@
 {
-  "name": "research-insights-workspace",
-  "version": "5.0.0",
+  "name": "creatoriq",
+  "version": "6.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "check": "node scripts/check.mjs && wrangler deploy --dry-run --outdir .wrangler-build",
-    "db:local": "wrangler d1 migrations apply DB --local",
-    "db:remote": "wrangler d1 migrations apply DB --remote",
+    "check": "node --check src/worker.js && node --check src/router.js && node --check src/frontend/app.js && wrangler deploy --dry-run --outdir .wrangler-build",
     "tail": "wrangler tail"
-  },
-  "dependencies": {
-    "unpdf": "^1.6.2"
   },
   "devDependencies": {
     "wrangler": "^4.20.0"
